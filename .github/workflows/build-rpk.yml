@@ -1,0 +1,39 @@
+name: Build Vela RPK
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Build debug installer from source
+        if: github.ref_type != 'tag'
+        run: node scripts/package-rpk.cjs debug dist/artifacts
+      - name: Build and verify signed installer from source
+        if: github.ref_type == 'tag'
+        env:
+          HFUT_SIGNING_P12_B64: ${{ secrets.HFUT_SIGNING_P12_B64 }}
+          CAMPUS_SIGNING_PASSWORD: ${{ secrets.HFUT_SIGNING_PASSWORD }}
+        run: node scripts/package-rpk.cjs release dist/artifacts "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wearable-rpk
+          path: dist/artifacts/*.rpk
+          if-no-files-found: error

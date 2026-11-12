@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.cjs",
-    "build:hfp": "node scripts/pack.mjs --source hfp",
     "release": "node scripts/build.cjs --release"
   },
   "devDependencies": {
