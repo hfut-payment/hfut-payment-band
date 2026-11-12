@@ -1,0 +1,7 @@
+The fixed title images are rendered from Noto Sans CJK SC Medium.
+Official source: https://github.com/notofonts/noto-cjk/tree/main/Sans
+Font Git blob SHA-1: 00b01dff38ff8d0a345c53d64a71bfcf9ec55522
+Font SHA-256: ca094f6b0001fb048ca39ddd797a0cdb0179e1e55c6561e111c49c3e6a61d7b7
+The font is licensed under the SIL Open Font License 1.1 (Noto-OFL.txt).
+Only the fixed, antialiased campus-card title PNG are included in the RPK;
+the full font file is not embedded or distributed in this application.

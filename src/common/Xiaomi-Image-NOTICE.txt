@@ -1,0 +1,8 @@
+Copyright (C) 2024 Xiaomi Corporation.
+Licensed under the Apache License, Version 2.0; see Apache-2.0.txt.
+
+Image cache/display and Base64 conversion adapted from:
+https://github.com/open-vela/packages_apps/tree/daf277e9e2d50416662512c8b753b16b3a3ec421/wearable/interconnect_image_demo
+
+Changes: scoped cache cleanup, unique filenames, generation/cancellation checks,
+small PNG limits, explicit expiry clearing, no raw payload logging.

@@ -1,0 +1,14 @@
+{
+  "name": "hfut-campus-card-band",
+  "version": "2.0.0-beta.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "build:hfp": "node scripts/pack.mjs --source hfp",
+    "release": "node scripts/build.cjs --release"
+  },
+  "devDependencies": {
+    "aiot-toolkit": "2.0.5"
+  }
+}

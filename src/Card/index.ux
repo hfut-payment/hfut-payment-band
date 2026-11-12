@@ -1,0 +1,309 @@
+<template>
+  <swiper class="pages" vertical="true" indicator="false" loop="false" autoplay="false" onswipe="handleSwipe">
+    <stack class="code-stack" onclick="retry">
+      <div class="code-page" for="{{display.frames}}" tid="id" style="opacity: {{display.activeId === $item.id ? 1 : 0}};">
+      <image class="heading" src="/common/title-card.png" alt="blank" style="width: {{screen.captionWidth}}px; height: {{screen.captionHeight}}px; margin-bottom: {{screen.gap}}px;"></image>
+      <div class="qr-card" style="width: {{$item.cardSide}}px; height: {{$item.cardSide}}px;">
+        <image class="qr" src="{{$item.imagePath}}" style="width: {{$item.renderSide}}px; height: {{$item.renderSide}}px;" alt="blank" oncomplete="imageLoaded($item.id, 'qr')" onerror="imageFailed($item.id)"></image>
+        <image if="{{$item.cornerRadius > 0}}" class="corner corner-tl" style="width: {{$item.cornerRadius}}px; height: {{$item.cornerRadius}}px;" src="{{'/common/qr-corner-tl-' + $item.cornerRadius + '.png'}}" alt="blank"></image>
+        <image if="{{$item.cornerRadius > 0}}" class="corner corner-tr" style="width: {{$item.cornerRadius}}px; height: {{$item.cornerRadius}}px;" src="{{'/common/qr-corner-tr-' + $item.cornerRadius + '.png'}}" alt="blank"></image>
+        <image if="{{$item.cornerRadius > 0}}" class="corner corner-bl" style="width: {{$item.cornerRadius}}px; height: {{$item.cornerRadius}}px;" src="{{'/common/qr-corner-bl-' + $item.cornerRadius + '.png'}}" alt="blank"></image>
+        <image if="{{$item.cornerRadius > 0}}" class="corner corner-br" style="width: {{$item.cornerRadius}}px; height: {{$item.cornerRadius}}px;" src="{{'/common/qr-corner-br-' + $item.cornerRadius + '.png'}}" alt="blank"></image>
+      </div>
+        <image if="{{$item.barcodePath && display.activeId !== $item.id}}" class="preload" src="{{$item.barcodePath}}" alt="blank" oncomplete="imageLoaded($item.id, 'bar')" onerror="imageFailed($item.id)"></image>
+        <div class="balance-slot" style="width: {{screen.captionWidth}}px; height: {{screen.captionHeight}}px; margin-top: {{screen.gap}}px;">
+          <text if="{{balanceText && balanceRevision === $item.revision}}" class="balance" style="font-size: {{balanceFontSize}}px;">{{balanceText}}</text>
+        </div>
+      </div>
+      <div class="code-page" if="{{display.activeId === 0}}">
+        <image class="empty-heading" src="/common/title-card.png" alt="blank"></image>
+        <text if="{{connectionHint}}" class="connection-hint">请连接手机</text>
+        <div if="{{busy && !connectionHint}}" class="loading">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>
+        <image if="{{!busy && !connectionHint}}" class="retry-icon" src="/common/retry.png" alt="blank"></image>
+      </div>
+    </stack>
+    <stack class="code-stack" onclick="retry">
+      <div class="code-page" for="{{display.frames}}" tid="id" style="opacity: {{display.activeId === $item.id ? 1 : 0}};">
+        <div if="{{$item.barcodePath}}" class="barcode-card" style="width: {{$item.barcodeWidth + 8}}px; height: {{$item.barcodeHeight + 8}}px;">
+          <image class="barcode" src="{{$item.barcodePath}}" style="width: {{$item.barcodeWidth}}px; height: {{$item.barcodeHeight}}px;" alt="blank" oncomplete="imageLoaded($item.id, 'bar')" onerror="imageFailed($item.id)"></image>
+        </div>
+        <text if="{{!$item.barcodePath}}" class="barcode-hint">此码暂不支持条形码</text>
+        <image if="{{display.activeId !== $item.id}}" class="preload" src="{{$item.imagePath}}" alt="blank" oncomplete="imageLoaded($item.id, 'qr')" onerror="imageFailed($item.id)"></image>
+      </div>
+      <div class="code-page" if="{{display.activeId === 0}}">
+        <text if="{{connectionHint}}" class="connection-hint">请连接手机</text>
+        <div if="{{busy && !connectionHint}}" class="loading">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>
+        <image if="{{!busy && !connectionHint}}" class="retry-icon" src="/common/retry.png" alt="blank"></image>
+      </div>
+    </stack>
+  </swiper>
+</template>
+<script>
+import {createLeaseClock} from '../common/expiry.js'
+import {createImageCache} from '../common/imageCache.js'
+import {layoutForQr} from '../common/qrLayout.js'
+import {layoutForScreen} from '../common/screenLayout.js'
+import {renderQr, renderBarcode} from '../common/localRender.js'
+import {screenSession} from '../common/screenSession.js'
+import app from '@system.app'
+import device from '@system.device'
+import * as channel from '../common/interconnect.js'
+
+let serial = 0
+const KEEPALIVE_MS = 10000
+const RETRY_MS = 2500
+export default {
+  private: {display: {frames: [], activeId: 0}, connectionHint: false, busy: false, balanceText: '', balanceRevision: -1,
+    screen: layoutForScreen(), balanceFontSize: 18},
+  onInit() {
+    this.cache = createImageCache()
+    this.clock = createLeaseClock()
+    this.active = false
+    this.view = ''
+    this.buildId = 0
+    this.renderingRevision = -1
+    this.clearBalance()
+    this.live = null
+    this.staged = null
+    this.screenReady = new Promise(resolve => {
+      let settled = false
+      const finish = info => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        this.screen = layoutForScreen(info)
+        resolve(this.screen)
+      }
+      const timeout = setTimeout(finish, 700)
+      try { device.getInfo({success: finish, fail: () => finish()}) }
+      catch (error) { finish() }
+    })
+  },
+  onShow() {
+    this.close()
+    screenSession.enter()
+    this.active = true
+    this.clock.reset(Date.now())
+    this.nextProbe = Date.now() + RETRY_MS
+    this.timer = setInterval(() => this.tick(), 250)
+    channel.watch(connected => this.connectionChanged(connected), frame => this.receive(frame))
+  },
+  connectionChanged(connected) {
+    if (!this.active) return
+    if (!connected) this.disconnect()
+    else if (!this.view) this.subscribe()
+  },
+  subscribe() {
+    if (!this.active) return
+    if (this.view) channel.send({v:2, type:'card.hidden', viewSession:this.view})
+    this.buildId++
+    this.renderingRevision = -1
+    this.dropStage()
+    this.lastAck = 0
+    this.sent = []
+    this.attempts = 0
+    this.view = 'view_' + Date.now() + '_' + (++serial)
+    this.host = ''
+    this.seq = -1
+    this.clearBalance()
+    this.revision = -1
+    this.connectionHint = false
+    this.busy = !this.live
+    this.signal('card.subscribe')
+  },
+  signal(type) {
+    const now = Date.now()
+    this.sent.push(now)
+    if (this.sent.length > 8) this.sent.shift()
+    const awaitingFirstAck = !this.host && this.attempts++ < 3
+    this.nextSignal = now + (awaitingFirstAck ? RETRY_MS : KEEPALIVE_MS)
+    const view = this.view
+    channel.send({v:2, type, viewSession:view, clientSentAt:now, balance:true, knownRevision:this.live ? this.live.revision : -1}, () => {
+      if (this.view !== view) return
+      if (this.host) this.disconnect()
+      else { this.connectionHint = true; this.busy = false }
+    })
+  },
+  receive(frame) {
+    if (!this.active || !this.view || frame.viewSession !== this.view ||
+        typeof frame.hostId !== 'string' || !Number.isSafeInteger(frame.seq)) return
+    const now = Date.now()
+    if (!this.clock.check(now)) { this.clearFrames(); this.subscribe(); return }
+    if (this.host && frame.hostId !== this.host) return
+    if (frame.type === 'card.balance') {
+      if (this.host) this.updateBalance(frame, now)
+      return
+    }
+    if (frame.seq <= this.seq) return
+    if (this.sent.indexOf(frame.clientSentAt) !== -1 && this.clock.sync(frame.sentAt, frame.clientSentAt, now)) {
+      this.host = frame.hostId
+      this.lastAck = now
+      this.connectionHint = false
+      this.nextSignal = now + KEEPALIVE_MS
+    }
+    if (!this.host) return
+    this.seq = frame.seq
+    if (frame.type === 'card.offline') { this.disconnect(); return }
+    if (frame.type === 'card.lease' || frame.type === 'card.snapshot') this.updateBalance(frame, now)
+    if (frame.type !== 'card.snapshot' || !Number.isSafeInteger(frame.revision) || frame.revision < this.revision) return
+    this.revision = frame.revision
+    if (!frame.ready) { this.clearFrames(); this.busy = false; return }
+    const deadline = this.clock.deadline(frame, now)
+    if (deadline && (!this.live || this.live.revision !== frame.revision)
+        && (!this.staged || this.staged.layer.revision !== frame.revision)
+        && this.renderingRevision !== frame.revision) this.stage(frame, deadline)
+  },
+  clearBalance() {
+    this.balanceSeq = -1
+    this.balanceExpiry = 0
+    this.balanceText = ''
+    this.balanceRevision = -1
+  },
+  updateBalance(frame, now) {
+    if (frame.seq <= this.balanceSeq) return
+    this.balanceSeq = frame.seq
+    const validText = Number.isSafeInteger(frame.revision) && typeof frame.balance === 'string' && /^¥-?\d{1,14}\.\d{2}$/.test(frame.balance)
+    this.balanceExpiry = validText ? this.clock.balanceDeadline(frame, now) : 0
+    this.balanceText = this.balanceExpiry ? frame.balance : ''
+    this.balanceRevision = this.balanceExpiry ? frame.revision : -1
+    if (this.balanceText) {
+      this.balanceFontSize = Math.min(this.screen.balanceFont,
+        Math.max(7, Math.floor(this.screen.captionWidth / (this.balanceText.length * 0.65))))
+    }
+  },
+  async stage(frame, deadline) {
+    const id = ++this.buildId
+    const view = this.view
+    this.dropStage()
+    this.renderingRevision = frame.revision
+    let qrUri = '', barUri = ''
+    try {
+      const screen = await this.screenReady
+      if (this.view !== view || this.buildId !== id || Date.now() >= deadline) return
+      const qr = renderQr(frame)
+      const bar = renderBarcode(frame.code, screen.maxBarPixels)
+      qrUri = await this.cache.store(qr)
+      if (this.view !== view || this.buildId !== id) return
+      if (bar) barUri = await this.cache.store(bar)
+      if (this.view !== view || this.buildId !== id || Date.now() >= deadline) return
+      const layer = Object.assign(layoutForQr(qr.side, 1, qr.quietPixels, screen.qrSide), {
+        id, deadline, revision:frame.revision, imagePath:qrUri, barcodePath:barUri,
+        barcodeWidth:screen.barcodeWidth, barcodeHeight:bar ? Math.ceil(bar.height / screen.scale) : 0
+      })
+      this.staged = {layer, qrLoaded:false, barLoaded:!bar, timeout:Math.min(deadline, Date.now() + 4000)}
+      qrUri = barUri = ''
+      this.display = {frames: this.live ? [this.live, layer] : [layer], activeId: this.live ? this.live.id : 0}
+    } catch (e) { if (this.view === view && this.buildId === id) this.busy = false }
+    finally {
+      if (this.buildId === id) this.renderingRevision = -1
+      this.cache.release(qrUri); this.cache.release(barUri)
+    }
+  },
+  imageLoaded(id, kind) {
+    const next = this.staged
+    if (!next || next.layer.id !== id) return
+    if (kind === 'qr') next.qrLoaded = true
+    else next.barLoaded = true
+    if (!next.qrLoaded || !next.barLoaded) return
+    if (!this.active || Date.now() >= next.layer.deadline) { this.dropStage(); return }
+    const old = this.live
+    this.live = next.layer
+    this.staged = null
+    this.display = {frames: [this.live], activeId: id}
+    this.busy = false
+    if (old) this.release(old)
+  },
+  imageFailed(id) {
+    if (this.staged && this.staged.layer.id === id) { this.dropStage(); this.busy = false }
+    else if (this.live && this.live.id === id) this.expireLive()
+  },
+  release(layer) { this.cache.release(layer.imagePath); this.cache.release(layer.barcodePath) },
+  dropStage() {
+    if (!this.staged) return
+    this.release(this.staged.layer)
+    this.staged = null
+    this.display = {frames: this.live ? [this.live] : [], activeId: this.live ? this.live.id : 0}
+  },
+  expireLive() {
+    if (this.live) this.release(this.live)
+    this.live = null
+    this.display = {frames: this.staged ? [this.staged.layer] : [], activeId: 0}
+  },
+  clearFrames() { this.buildId++; this.renderingRevision = -1; this.dropStage(); this.expireLive(); this.clearBalance() },
+  disconnect() {
+    this.view = ''
+    this.lastAck = 0
+    this.nextProbe = Date.now() + RETRY_MS
+    this.clearFrames()
+    this.busy = false
+    this.connectionHint = true
+  },
+  retry() { if (!this.live && !this.busy) this.subscribe() },
+  tick() {
+    const now = Date.now()
+    if (!this.clock.check(now)) { this.clearFrames(); this.subscribe(); return }
+    if (this.balanceText && now >= this.balanceExpiry) this.balanceText = ''
+    if (this.live && now >= this.live.deadline) this.expireLive()
+    if (this.staged && now >= this.staged.timeout) { this.dropStage(); this.busy = false }
+    if (!this.view && now >= this.nextProbe) {
+      this.nextProbe = now + KEEPALIVE_MS
+      channel.probe()
+    } else if (this.view && now >= this.nextSignal) {
+      if (!this.host) this.signal('card.subscribe')
+      else if (now - this.lastAck >= 20000) this.subscribe()
+      else this.signal('card.keepalive')
+    }
+  },
+  close() {
+    this.active = false
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+    channel.watch(null, null)
+    if (this.view) channel.send({v:2, type:'card.hidden', viewSession:this.view})
+    this.view = ''
+    this.clearFrames()
+    this.busy = false
+  },
+  leavePage() {
+    try { screenSession.leave() } catch (e) {}
+    try { this.close() } catch (e) {}
+  },
+  handleSwipe(event) {
+    if (event.direction === 'right' && this.active) {
+      this.leavePage()
+      app.terminate()
+    }
+  },
+  onHide() { this.leavePage() },
+  onBackPress() { this.leavePage() },
+  onDestroy() { this.leavePage() }
+}
+</script>
+<style>
+.preload {position:absolute;top:0px;left:0px;width:1px;height:1px;opacity:0;}
+.code-stack {width:100%;height:100%;}
+.pages {width:100%;height:100%;background-color:#000000;}
+.code-page {width:100%;height:100%;flex-direction:column;align-items:center;justify-content:center;background-color:#000000;}
+.heading {object-fit:scale-down;flex-shrink:0;}
+.empty-heading {width:80px;height:20px;margin-bottom:12px;object-fit:contain;}
+.balance-slot {align-items:center;justify-content:center;flex-shrink:0;}
+.balance {width:100%;color:#b9bec7;text-align:center;}
+.qr-card {align-items:center;justify-content:center;background-color:#000000;}
+.qr {object-fit:contain;flex-shrink:0;}
+.barcode-card {align-items:center;justify-content:center;background-color:#ffffff;border-radius:12px;}
+.barcode {object-fit:none;flex-shrink:0;}
+.barcode-hint {width:176px;font-size:16px;color:#93999f;text-align:center;}
+.connection-hint {width:176px;font-size:20px;color:#b9bec7;text-align:center;}
+.corner {position:absolute;object-fit:none;}
+.corner-tl {top:0px;left:0px;}
+.corner-tr {top:0px;right:0px;}
+.corner-bl {bottom:0px;left:0px;}
+.corner-br {bottom:0px;right:0px;}
+.loading {width:32px;height:24px;align-items:center;justify-content:space-between;}
+.dot {width:4px;height:4px;border-radius:2px;background-color:#71777f;}
+.retry-icon {width:24px;height:24px;object-fit:none;}
+</style>

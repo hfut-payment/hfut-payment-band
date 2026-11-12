@@ -1,0 +1,4 @@
+<script>
+import {screenSession} from './common/screenSession.js'
+export default {onHide(){screenSession.leave()},onDestroy(){screenSession.leave()}}
+</script>
