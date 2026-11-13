@@ -2,8 +2,8 @@
   "package": "dev.codex.hfutcampus",
   "name": "payfor工大",
   "icon": "/common/icon.png",
-  "versionName": "2.0.6",
-  "versionCode": 200106,
+  "versionName": "2.0.7",
+  "versionCode": 200107,
   "minAPILevel": 1,
   "deviceTypeList": [
     "watch"

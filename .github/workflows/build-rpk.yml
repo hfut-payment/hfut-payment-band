@@ -6,6 +6,11 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      signed_candidate:
+        description: Build a signed candidate without publishing it
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,9 +19,12 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    env:
+      SIGNED_BUILD: ${{ github.ref_type == 'tag' || inputs.signed_candidate }}
     steps:
       - uses: actions/checkout@v5
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -24,16 +32,46 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - name: Build debug installer from source
-        if: github.ref_type != 'tag'
+        if: env.SIGNED_BUILD != 'true'
         run: node scripts/package-rpk.cjs debug dist/artifacts
       - name: Build and verify signed installer from source
-        if: github.ref_type == 'tag'
+        if: env.SIGNED_BUILD == 'true'
         env:
           HFUT_SIGNING_P12_B64: ${{ secrets.HFUT_SIGNING_P12_B64 }}
           CAMPUS_SIGNING_PASSWORD: ${{ secrets.HFUT_SIGNING_PASSWORD }}
-        run: node scripts/package-rpk.cjs release dist/artifacts "${GITHUB_REF_NAME#v}"
+        run: |
+          version=$(node -p "require('./src/manifest.json').versionName")
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$version" ]]
+            git merge-base --is-ancestor HEAD refs/remotes/origin/main
+          fi
+          node scripts/package-rpk.cjs release dist/artifacts "$version"
+          (cd dist/artifacts && sha256sum -- *.rpk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
           name: wearable-rpk
-          path: dist/artifacts/*.rpk
+          path: dist/artifacts/
           if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag' && !github.event.repository.private
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wearable-rpk
+          path: release
+      - name: Publish verified RPK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          sha256sum -c SHA256SUMS.txt
+          apk="HFUT-Campus-Band-${GITHUB_REF_NAME#v}.rpk"
+          args=(--verify-tag --generate-notes --title "手环付款码 $GITHUB_REF_NAME")
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then args+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "${args[@]}" "$apk" SHA256SUMS.txt
