@@ -26,4 +26,15 @@ node scripts/package-rpk.cjs debug dist/artifacts
 
 [GitHub Actions](../../actions/workflows/build-rpk.yml) 会直接从源码生成 RPK，可在对应运行的「Artifacts」中下载。日常提交生成调试包；发布标签使用原发布证书生成并验签。
 
+## 发布新版本
+
+更新 `src/manifest.json` 中的 `versionName` 和 `versionCode`，提交改动。正式发行前，可在 Actions 手动运行 `signed_candidate`，用候选 RPK 覆盖安装旧版。以当前候选为例，在组织仓库的本地 `main` 分支上给审核通过的提交打标签：
+
+~~~sh
+git tag -a v2.0.7 -m "Release v2.0.7"
+git push --atomic origin main refs/tags/v2.0.7
+~~~
+
+公开仓库的版本标签会触发构建，验签通过后 RPK 出现在 [Releases](../../releases)。
+
 二维码及字体等第三方许可在 `src/common` 目录。
