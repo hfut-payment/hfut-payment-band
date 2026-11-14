@@ -1,40 +1,47 @@
-# payfor工大 · 手环付款码
+# payfor工大 · 小米手环快应用
 
-把校园付款码放到手环上。打开手环应用即可出示二维码，上下滑动可以切换到条形码，也可在手机端选择是否显示余额。
+用于在支持 Vela 快应用的小米手环上出示校园付款码。打开手环应用即可展示二维码，上下滑动切换条形码，并支持在手机端配置是否同步显示校园卡余额。
 
-需要支持 Vela 快应用和小米运动健康互联的设备。小米手环 11 已实测，其他机型能否使用取决于固件和互联能力。界面适配胶囊形、矩形和圆形屏幕。
+> [!NOTE]
+> 手机端的「小米手环连接（Beta）」已内置于 Android 主应用。手环上安装本仓库提供的 `.rpk` 快应用即可。
 
-## 安装到手环
+## 兼容性与适配
 
-1. 在手机应用的「设置 → 小米手环」导出安装包，也可以从本仓库的 [Releases](../../releases) 下载 `HFUT-Campus-Band-版本.rpk`。
-2. 用 [AstroBox](https://github.com/AstralSightStudios/AstroBox) 连接手环，点「安装快应用」，选刚保存的 RPK。已有旧版时，请使用同签名的包覆盖安装。
-3. 安装完成后断开 AstroBox，打开小米运动健康，等手环重新显示「已连接」。
-4. 回到支持手环互联的手机应用，在「设置 → 小米手环」开启连接并按提示授权。然后打开手环上的校园卡应用。
+* **运行环境**：需设备支持小米 Vela 快应用，并具备与「小米运动健康」App 的互联通信能力。
+* **屏幕适配**：界面布局已适配胶囊形、矩形和圆形屏幕。
+* **实测机型**：小米手环 11 已完成实机验证。其他机型的可用性取决于具体固件版本与运动健康互联支持情况。
 
-手机端已经内置连接和设置。若手环显示「请连接手机」，先确认小米运动健康已连接，再检查手机应用的手环连接开关和蓝牙权限。
+## 安装与连接步骤
 
-## 从源码构建（可选）
+1. **获取 RPK 安装包**：可在手机主应用的「设置 → 小米手环」中直接导出安装包，或在正式发布后前往本仓库 [Releases](../../releases) 下载 `HFUT-Campus-Band-版本.rpk`。
+2. **安装快应用至手环**：使用 [AstroBox](https://github.com/AstralSightStudios/AstroBox) 连接手环，点击「安装快应用」并选择已保存的 RPK 文件。若手环已安装旧版本，需使用相同证书签名的安装包进行覆盖安装。
+3. **恢复小米运动健康连接**：安装完成后断开 AstroBox，打开手机上的「小米运动健康」，等待手环连接状态恢复为「已连接」。
+4. **启用手机端同步**：打开 `payfor工大` 手机主应用，进入「设置 → 小米手环」，开启手环连接并按系统提示授予所需权限，随后即可在手环端打开校园卡应用。
 
-安装 Node.js 22，然后在仓库根目录运行：
+**常见排查**：若手环端持续显示「请连接手机」，请依次确认：小米运动健康是否处于「已连接」状态、手机主应用内的手环连接开关是否开启、应用是否已获得蓝牙相关权限。
 
-~~~sh
+## 源码打包与发版
+
+本地构建需安装 Node.js 22。在仓库根目录执行以下命令生成调试包：
+
+```sh
 npm ci --ignore-scripts
 node scripts/package-rpk.cjs debug dist/artifacts
-~~~
+```
 
-安装包在 `dist/artifacts/`。调试签名与发布签名不同，不能覆盖正式版。有自己的签名时，可先运行 `node scripts/create-signing-key.cjs`，再用 `CAMPUS_BETA_SIGN_DIR` 指定存放 `private.pem` 和 `certificate.pem` 的目录并运行 `npm run release`。自行签名的包也不能覆盖官方发布在本仓库的版本。
+构建产物输出至 `dist/artifacts/`。调试签名与发布签名不同，无法覆盖安装正式版。若需使用自定义证书签名，可先运行 `node scripts/create-signing-key.cjs` 生成密钥对，再通过环境变量 `CAMPUS_BETA_SIGN_DIR` 指定包含 `private.pem` 与 `certificate.pem` 的目录并执行 `npm run release`（自定义签名包同样无法覆盖本仓库发布的版本）。
 
-[GitHub Actions](../../actions/workflows/build-rpk.yml) 会直接从源码生成 RPK，可在对应运行的「Artifacts」中下载。日常提交生成调试包；发布标签使用原发布证书生成并验签。
+此外，[Actions](../../actions/workflows/build-rpk.yml) 会在日常提交时自动构建调试版 RPK，可在对应运行记录的「Artifacts」中下载。
 
-## 发布新版本
+1. 更新 `src/manifest.json` 中的 `versionName` 与 `versionCode` 并提交改动。
+2. 正式发布前，可在 Actions 中手动触发 `signed_candidate` 生成候选包，测试对旧版本的覆盖安装。
+3. 验证通过后，在本地 `main` 分支对审核通过的提交打标签并推送（以 `v2.0.7` 为例）：
 
-更新 `src/manifest.json` 中的 `versionName` 和 `versionCode`，提交改动。正式发行前，可在 Actions 手动运行 `signed_candidate`，用候选 RPK 覆盖安装旧版。以当前候选为例，在组织仓库的本地 `main` 分支上给审核通过的提交打标签：
-
-~~~sh
+```sh
 git tag -a v2.0.7 -m "Release v2.0.7"
 git push --atomic origin main refs/tags/v2.0.7
-~~~
+```
 
-公开仓库的版本标签会触发构建，验签通过后 RPK 出现在 [Releases](../../releases)。
+仓库公开后，版本标签将触发正式构建流程，使用原发布证书签名并校验通过后，将 RPK 发布至 [Releases](../../releases)。
 
-二维码及字体等第三方许可在 `src/common` 目录。
+二维码生成组件及字体等第三方许可文件位于 `src/common` 目录。
